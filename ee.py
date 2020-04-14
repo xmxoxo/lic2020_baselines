@@ -1,7 +1,7 @@
 #! -*- coding: utf-8 -*-
 # 百度LIC2020的事件抽取赛道，非官方baseline
 # 直接用RoBERTa+CRF
-# 在第一期测试集上能达到0.76的F1，优于官方baseline
+# 在第一期测试集上能达到0.78的F1，优于官方baseline
 
 import json
 import numpy as np
@@ -135,34 +135,38 @@ def viterbi_decode(nodes, trans):
         idxs = M.argmax(0)
         scores = M.max(0).reshape((-1, 1))
         paths = np.concatenate([paths[:, idxs], labels], 0)
-    return paths[:, scores[0].argmax()]
+    return paths[:, scores[:, 0].argmax()]
 
 
 def extract_arguments(text):
-    """命名实体识别函数
+    """arguments抽取函数
     """
     tokens = tokenizer.tokenize(text)
-    while len(tokens) > 512:
+    while len(tokens) > 510:
         tokens.pop(-2)
+    mapping = tokenizer.rematch(text, tokens)
     token_ids = tokenizer.tokens_to_ids(tokens)
     segment_ids = [0] * len(token_ids)
     nodes = model.predict([[token_ids], [segment_ids]])[0]
     trans = K.eval(CRF.trans)
-    labels = viterbi_decode(nodes, trans)[1:-1]
+    labels = viterbi_decode(nodes, trans)
     arguments, starting = [], False
-    for token, label in zip(tokens[1:-1], labels):
+    for i, label in enumerate(labels):
         if label > 0:
             if label % 2 == 1:
                 starting = True
-                arguments.append([[token], id2label[(label - 1) // 2]])
+                arguments.append([[i], id2label[(label - 1) // 2]])
             elif starting:
-                arguments[-1][0].append(token)
+                arguments[-1][0].append(i)
             else:
                 starting = False
         else:
             starting = False
 
-    return {tokenizer.decode(w, w): l for w, l in arguments}
+    return {
+        text[mapping[w[0]][0]:mapping[w[-1]][-1] + 1]: l
+        for w, l in arguments
+    }
 
 
 def evaluate(data):
